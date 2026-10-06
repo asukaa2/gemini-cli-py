@@ -18,6 +18,10 @@ import base64
 import io
 import json
 import os
+import re
+import socket
+import subprocess
+import sys
 import time
 from pathlib import Path
 from typing import Any, Optional
@@ -39,6 +43,135 @@ from ..tools import build_default_registry
 
 
 # --------------------------------------------------------------------------- #
+# Share manager — spawns a separate Gradio process with --share to get a
+# public *.gradio.live URL. We can't toggle share=True at runtime on the
+# current process, so we relaunch a sibling process instead.
+# --------------------------------------------------------------------------- #
+
+
+# Regex that matches the public share URL Gradio prints to stdout.
+_SHARE_URL_RE = re.compile(r"https://[a-z0-9-]+\.gradio\.live", re.IGNORECASE)
+
+
+def _free_port() -> int:
+    """Return an OS-assigned free TCP port for the subprocess to bind."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
+class ShareManager:
+    """Manages an optional second Gradio process running with --share."""
+
+    def __init__(self) -> None:
+        self.url: str = ""  # current public URL, empty if not sharing
+        self.proc: Optional[subprocess.Popen] = None
+        # If the parent app itself was launched with --share, the URL is set
+        # externally via set_parent_url() so the UI can display it.
+        self.parent_url: str = ""
+
+    @property
+    def active(self) -> bool:
+        # The subprocess could have died on its own — check poll()
+        if self.proc is not None and self.proc.poll() is not None:
+            # Process exited; clean up
+            self.proc = None
+            self.url = ""
+        return bool(self.url and (self.proc is not None or self.parent_url))
+
+    def set_parent_url(self, url: str) -> None:
+        """Set the URL if the parent process itself was launched with --share."""
+        self.parent_url = url
+        if url and not self.url:
+            self.url = url
+
+    def start(self, timeout: float = 25.0) -> str:
+        """
+        Spawn `python app.py --share` on a free port and capture the URL.
+        Returns the URL on success, or an error message starting with 'ERROR:'.
+        """
+        if self.parent_url:
+            return self.parent_url
+        if self.proc is not None and self.proc.poll() is None:
+            # Already running — return the URL we have
+            return self.url or "ERROR: share process is starting…"
+
+        port = _free_port()
+        cmd = [
+            sys.executable,
+            str(Path(__file__).resolve().parents[2] / "app.py"),
+            "--share",
+            "--host", "127.0.0.1",
+            "--port", str(port),
+        ]
+        try:
+            self.proc = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1,
+                cwd=str(Path.cwd()),
+                env={**os.environ},
+            )
+        except Exception as exc:
+            return f"ERROR: failed to spawn share process: {exc}"
+
+        # Read stdout line-by-line until we see the share URL or timeout
+        deadline = time.time() + timeout
+        url = ""
+        try:
+            assert self.proc.stdout is not None
+            while time.time() < deadline:
+                line = self.proc.stdout.readline()
+                if not line:
+                    if self.proc.poll() is not None:
+                        # Process exited before printing a URL
+                        rest = self.proc.stdout.read()
+                        return f"ERROR: share process exited. Output:\n{rest[:1000]}"
+                    time.sleep(0.1)
+                    continue
+                m = _SHARE_URL_RE.search(line)
+                if m:
+                    url = m.group(0)
+                    break
+        except Exception as exc:
+            return f"ERROR: while waiting for share URL: {exc}"
+
+        if not url:
+            # Kill the process so we don't leak a zombie
+            self.stop()
+            return "ERROR: timed out waiting for share URL (Gradio share server may be down)."
+
+        self.url = url
+        return url
+
+    def stop(self) -> str:
+        """Kill the share subprocess (if any). Returns a status message."""
+        if self.parent_url:
+            return (
+                "This is the parent process launched with --share. "
+                "Stop sharing by killing the server (Ctrl+C in the terminal)."
+            )
+        if self.proc is None:
+            self.url = ""
+            return "No active share process."
+        try:
+            self.proc.terminate()
+            try:
+                self.proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                self.proc.kill()
+                self.proc.wait(timeout=3)
+        except Exception as exc:
+            return f"ERROR stopping share process: {exc}"
+        finally:
+            self.proc = None
+            self.url = ""
+        return "Share process stopped. The public URL is no longer accessible."
+
+
+# --------------------------------------------------------------------------- #
 # App state (one instance per Gradio app instance)
 # --------------------------------------------------------------------------- #
 
@@ -53,6 +186,9 @@ class AppState:
         self.mcp = MCPManager(self.settings)
         self.registry = build_default_registry(client=self.client, settings=self.settings)
         self.current_session: Optional[Session] = None
+        # Public URL sharing — either inherited from parent launch (--share)
+        # or started on demand via the UI button.
+        self.share = ShareManager()
 
     # ---- session helpers ---- #
 
@@ -87,8 +223,10 @@ class AppState:
 # --------------------------------------------------------------------------- #
 
 
-def build_app() -> gr.Blocks:
+def build_app(parent_share_url: str = "") -> gr.Blocks:
     state = AppState()
+    if parent_share_url:
+        state.share.set_parent_url(parent_share_url)
 
     # CSS + theme are passed to launch() in Gradio 6.x (see `_CUSTOM_CSS`
     # at the bottom of this file).
@@ -113,6 +251,36 @@ def build_app() -> gr.Blocks:
             )
             ws_status = gr.Markdown(
                 f"📂 **Workspace:** `{workspace_root()}`", elem_id="ws-status"
+            )
+
+        # --------------------------------------------------------------- #
+        # Public URL (Gradio share) row
+        # --------------------------------------------------------------- #
+        with gr.Accordion(
+            "🌐 Public URL (Gradio share)", open=bool(state.share.active)
+        ):
+            gr.Markdown(
+                "Create a temporary public URL (`*.gradio.live`) that anyone can "
+                "use to access this UI from anywhere. The URL is active for ~72 "
+                "hours or until you click Stop. This is useful for demos and "
+                "quick shares — don't leave it running unattended."
+            )
+            with gr.Row():
+                share_url_box = gr.Textbox(
+                    label="Current public URL",
+                    value=state.share.url,
+                    interactive=False,
+                    scale=4,
+                    placeholder="(not sharing — click \"🌐 Enable public URL\" to start)",
+                    buttons=["copy"],
+                )
+                share_enable_btn = gr.Button(
+                    "🌐 Enable public URL", variant="primary", scale=2
+                )
+                share_stop_btn = gr.Button("🛑 Stop sharing", scale=1)
+                share_refresh_btn = gr.Button("🔄 Refresh", scale=1)
+            share_status_md = gr.Markdown(
+                _render_share_status(state.share), elem_id="share-status"
             )
 
         # --------------------------------------------------------------- #
@@ -472,6 +640,50 @@ def build_app() -> gr.Blocks:
 
         connect_mcp_btn.click(on_connect_mcp, outputs=[mcp_status])
 
+        # ---- Public URL (share) ---- #
+        # NOTE: This callback blocks for up to ~25s while waiting for the
+        # share subprocess to print its URL. Gradio's queue handles this
+        # gracefully, but the user will see a "Running…" indicator.
+        def on_share_enable():
+            if state.share.active:
+                return (
+                    state.share.url,
+                    _render_share_status(state.share),
+                )
+            # Spawn the share subprocess and wait for the URL
+            result = state.share.start(timeout=25.0)
+            if result.startswith("ERROR:"):
+                return ("", f"⚠️ {result}")
+            return (result, _render_share_status(state.share))
+
+        share_enable_btn.click(
+            on_share_enable,
+            outputs=[share_url_box, share_status_md],
+        )
+
+        def on_share_stop():
+            msg = state.share.stop()
+            return ("", _render_share_status(state.share) + f"\n\n_{msg}_")
+
+        share_stop_btn.click(
+            on_share_stop,
+            outputs=[share_url_box, share_status_md],
+        )
+
+        def on_share_refresh():
+            # Re-check whether the subprocess is still alive
+            _ = state.share.active  # triggers poll check
+            return (state.share.url, _render_share_status(state.share))
+
+        share_refresh_btn.click(
+            on_share_refresh,
+            outputs=[share_url_box, share_status_md],
+        )
+
+    # Stash the AppState on the Blocks object so launch() (and callers
+    # like app.py) can reach in and mutate it after launch — e.g. to
+    # surface the share URL captured from `--share` CLI flag.
+    app._gemini_state = state  # type: ignore[attr-defined]
     return app
 
 
@@ -499,6 +711,21 @@ def _render_mcp_status(mcp: MCPManager, settings: Settings, lines: list[str] | N
         body = "<br>".join(l for l in lines)
         return f'<span class="status-pill status-ok">🔌 MCP connected</span><br><small>{body}</small>'
     return '<span class="status-pill status-ok">🔌 MCP: ready</span>'
+
+
+def _render_share_status(share: "ShareManager") -> str:
+    """Render the public-URL status pill. `share` is the ShareManager instance."""
+    if share.parent_url:
+        return (
+            '<span class="status-pill status-ok">🌐 Sharing (via --share flag)</span> '
+            "— this URL is provided by the parent process."
+        )
+    if share.active:
+        return (
+            '<span class="status-pill status-ok">🌐 Sharing active</span> — '
+            "URL is live. Anyone with the link can use this UI."
+        )
+    return '<span class="status-pill status-warn">🌐 Not sharing</span> — only localhost can access this UI.'
 
 
 def _session_choices(store: SessionStore) -> list[str]:
@@ -645,14 +872,57 @@ def _guess_mime(path: Path) -> str:
 # --------------------------------------------------------------------------- #
 
 
-def launch(**kwargs) -> None:
-    """Build the app and launch a Gradio server."""
-    app = build_app()
+def launch(parent_share_url: str = "", **kwargs) -> None:
+    """
+    Build the app and launch a Gradio server.
+
+    Args:
+        parent_share_url: If non-empty, the UI will display this URL as the
+            current public share URL (used when app.py is launched with
+            ``--share`` and the URL is already known).
+        **kwargs: Passed through to ``gr.Blocks.launch()``. If ``share=True``
+            is passed, the resulting ``*.gradio.live`` URL will be captured
+            and surfaced in the running UI's "Public URL" panel.
+    """
+    share_requested = bool(kwargs.pop("share", False))
+    block_caller_thread = not bool(kwargs.pop("prevent_thread_lock", False))
+
+    app = build_app(parent_share_url=parent_share_url)
     app.queue(default_concurrency_limit=4)
+    state: AppState = app._gemini_state  # type: ignore[attr-defined]
+
     # Gradio 6.x moved theme + css here
     kwargs.setdefault("theme", gr.themes.Soft())
     kwargs.setdefault("css", _CUSTOM_CSS)
-    app.launch(**kwargs)
+    # We launch non-blocking so we can capture the share URL and patch it
+    # into the AppState before the main thread sleeps.
+    kwargs["prevent_thread_lock"] = True
+
+    _, _local_url, share_url = app.launch(share=share_requested, **kwargs)
+
+    if share_url:
+        state.share.set_parent_url(share_url)
+
+    if block_caller_thread:
+        # Block the main thread until interrupted (Ctrl+C / SIGTERM).
+        # This emulates the default `app.launch()` blocking behavior while
+        # still letting us run setup code post-launch.
+        import threading
+
+        try:
+            threading.Event().wait()
+        except (KeyboardInterrupt, SystemExit):
+            pass
+        finally:
+            try:
+                app.close()
+            except Exception:
+                pass
+            # Also tear down any spawned share subprocess
+            try:
+                state.share.stop()
+            except Exception:
+                pass
 
 
 # Module-level CSS string so launch() can pass it to Blocks.launch()
