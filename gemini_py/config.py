@@ -61,40 +61,77 @@ def workspace_root() -> Path:
 # Models
 # --------------------------------------------------------------------------- #
 
-# A curated registry of common Gemini models. The dropdown in the UI is
-# populated from this list, but the model field is free-form — users can type
-# any model name their API key has access to. This mirrors gemini-cli's
-# `config/defaultModelConfigs.ts` + `config/models.ts`.
+# Curated list of currently-available Gemini models, sourced from the
+# official docs at https://ai.google.dev/gemini-api/docs/models (Oct 2026).
+#
+# The dropdown in the UI is populated from this list, but the model field
+# is free-form — users can type any model name their API key has access
+# to. The UI also queries `client.list_models()` at runtime to surface
+# every model the user's API key can actually see.
+#
+# Generation guide:
+#   • Gemini 3.x  → latest generation (3.5 / 3.7 / 3.8 Flash, 3.1 Pro)
+#   • Gemini 2.5.x → still supported, recommended for general use
+#   • Gemini 2.0.x → legacy, only use as a last-resort fallback
+#
+# NOTE: `gemini-2.5-flash-lite` and `gemini-2.0-flash-lite` are 404'ing
+# for new API keys as of Oct 2026 — Google redirects new users to
+# `gemini-3.5-flash-lite`. Don't list them as defaults.
 
 DEFAULT_MODELS: list[dict[str, str]] = [
+    # ---- Gemini 3.x (latest) ---- #
+    {
+        "id": "gemini-3.5-flash",
+        "label": "Gemini 3.5 Flash (recommended)",
+        "description": "Latest fast model. Best default for everyday tasks — cheap, fast, smart.",
+    },
+    {
+        "id": "gemini-3.5-flash-lite",
+        "label": "Gemini 3.5 Flash-Lite",
+        "description": "Lightest/cheapest Gemini 3.x. For high-volume low-latency tasks.",
+    },
+    {
+        "id": "gemini-3.1-pro",
+        "label": "Gemini 3.1 Pro (reasoning)",
+        "description": "Latest Pro. Best for complex reasoning, long context, code generation.",
+    },
+    {
+        "id": "gemini-3.1-flash-lite",
+        "label": "Gemini 3.1 Flash-Lite",
+        "description": "Previous-gen Lite. Stable, very cheap, decent quality.",
+    },
+    {
+        "id": "gemini-3-pro-preview",
+        "label": "Gemini 3 Pro (preview)",
+        "description": "Experimental Gemini 3 Pro. May be unstable.",
+    },
+    # ---- Gemini 2.5.x (still recommended) ---- #
     {
         "id": "gemini-2.5-flash",
-        "label": "Gemini 2.5 Flash (fast, default)",
-        "description": "Best for everyday tasks, fast responses, low cost.",
+        "label": "Gemini 2.5 Flash (stable)",
+        "description": "Workhorse from Gemini 2.5 generation. Solid default if 3.x misbehaves.",
     },
     {
         "id": "gemini-2.5-pro",
-        "label": "Gemini 2.5 Pro (reasoning)",
-        "description": "Best for complex reasoning, long context, code generation.",
+        "label": "Gemini 2.5 Pro (stable)",
+        "description": "Gemini 2.5 Pro. Strong reasoning, 1M context window.",
     },
     {
-        "id": "gemini-2.5-flash-lite",
-        "label": "Gemini 2.5 Flash-Lite",
-        "description": "Lightest, cheapest, for high-volume low-latency tasks.",
+        "id": "gemini-2.5-flash-preview",
+        "label": "Gemini 2.5 Flash (preview)",
+        "description": "Preview branch of 2.5 Flash. Use only if you need a specific preview feature.",
     },
+    # ---- Legacy 2.0.x (last resort) ---- #
     {
         "id": "gemini-2.0-flash",
-        "label": "Gemini 2.0 Flash",
-        "description": "Previous-gen Flash, good fallback.",
-    },
-    {
-        "id": "gemini-2.0-flash-exp",
-        "label": "Gemini 2.0 Flash (experimental)",
-        "description": "Experimental branch, may be unstable.",
+        "label": "Gemini 2.0 Flash (legacy)",
+        "description": "Previous-generation Flash. Use only as a fallback if 2.5/3.x fail.",
     },
 ]
 
-DEFAULT_MODEL_ID = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
+# Default model — Gemini 3.5 Flash is Google's recommended current default.
+# Override with the GEMINI_MODEL env var if needed.
+DEFAULT_MODEL_ID = os.environ.get("GEMINI_MODEL", "gemini-3.5-flash")
 
 
 def model_id_to_label(model_id: str) -> str:
