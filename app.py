@@ -42,8 +42,7 @@ def main() -> int:
         "--share",
         action="store_true",
         help="Create a public Gradio share link (*.gradio.live) at launch time. "
-        "You can also enable sharing from inside the running UI via the "
-        "'🌐 Public URL' panel.",
+        "Gradio prints the URL to stdout.",
     )
     parser.add_argument(
         "--workspace",
@@ -60,10 +59,8 @@ def main() -> int:
     # Import after .env is loaded so env vars are visible
     from gemini_py.ui import launch
 
-    # If --share is passed, the share URL is captured inside launch() and
-    # surfaced in the running UI's "🌐 Public URL" panel automatically.
-    # If --share is NOT passed, the user can still click the in-UI
-    # "🌐 Enable public URL" button to spawn a sibling share process.
+    # Pass --share through to Gradio's native share feature. The resulting
+    # *.gradio.live URL is printed to stdout by Gradio itself.
     launch(
         server_name=args.host,
         server_port=args.port,

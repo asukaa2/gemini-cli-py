@@ -98,8 +98,26 @@ class ToolRegistry:
         return list(self._tools.values())
 
     def declarations(self) -> list[dict[str, Any]]:
-        """All tool declarations, ready to pass to the Gemini SDK."""
-        return [t.declaration() for t in self._tools.values()]
+        """
+        Return the SDK-ready tool list.
+
+        The google-genai SDK expects `tools` to be a list of `Tool` objects,
+        where each `Tool` has a `function_declarations` field holding a list
+        of `FunctionDeclaration`s. We can't just pass a flat list of
+        `{"name": ..., "description": ..., "parameters": ...}` dicts
+        because the SDK tries to validate each one against the `Tool` schema
+        (which doesn't have `name` / `description` / `parameters` as direct
+        fields) and fails with a ValidationError.
+
+        So we wrap all our declarations in a single `Tool` dict shaped like:
+            [{"function_declarations": [decl1, decl2, ...]}]
+        The SDK accepts dicts in place of typed objects (it coerces them
+        via Pydantic), so this Just Works without an explicit import.
+        """
+        if not self._tools:
+            return []
+        func_decls = [t.declaration() for t in self._tools.values()]
+        return [{"function_declarations": func_decls}]
 
     def execute(self, name: str, args: dict[str, Any]) -> ToolResult:
         tool = self.get(name)
