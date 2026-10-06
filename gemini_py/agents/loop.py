@@ -229,11 +229,17 @@ def _messages_to_contents(messages: list[MessageRecord]) -> list[dict[str, Any]]
             parts.append({"text": m.content})
         if m.tool_calls:
             for call in m.tool_calls:
-                parts.append({"function_call": {
+                fc_dict: dict[str, Any] = {
                     "id": call.get("id") or uuid.uuid4().hex[:16],
                     "name": call.get("name", ""),
                     "args": call.get("args", {}) or {},
-                }})
+                }
+                # Echo back the thought_signature if we captured one.
+                # Gemini 3.x requires this on every function_call round-trip.
+                ts = call.get("thought_signature")
+                if ts:
+                    fc_dict["thought_signature"] = ts
+                parts.append({"function_call": fc_dict})
         if m.role == "tool":
             # function_response must be attached to the model turn that
             # produced the call. We handle this by emitting a model turn here
@@ -262,6 +268,14 @@ def _messages_to_contents(messages: list[MessageRecord]) -> list[dict[str, Any]]
 
 
 def _extract_from_chunk(chunk: Any) -> tuple[str, list[dict[str, Any]]]:
+    """
+    Extract streaming-text deltas and tool calls from one SDK chunk.
+
+    Captures `thought_signature` on every function_call so we can echo it
+    back on the next round-trip (Gemini 3.x requires this; without it the
+    API returns 400 INVALID_ARGUMENT 'Function call is missing a
+    thought_signature').
+    """
     text = ""
     calls: list[dict[str, Any]] = []
     try:
@@ -271,44 +285,66 @@ def _extract_from_chunk(chunk: Any) -> tuple[str, list[dict[str, Any]]]:
         parts = getattr(candidates[0].content, "parts", []) or []
         for part in parts:
             pt = getattr(part, "text", None)
-            if pt:
+            # Skip 'thought' parts — Gemini's reasoning trace. If we append
+            # these to the visible text the model sees its own thinking on
+            # the next turn and the API errors out.
+            is_thought = bool(getattr(part, "thought", False))
+            if pt and not is_thought:
                 text += pt
             fc = getattr(part, "function_call", None)
             if fc is not None:
-                calls.append({
-                    "id": getattr(fc, "id", None) or uuid.uuid4().hex[:16],
-                    "name": getattr(fc, "name", ""),
-                    "args": _to_plain(getattr(fc, "args", {})) or {},
-                })
+                calls.append(_function_call_to_dict(fc))
     except Exception:
         pass
     return text, calls
 
 
 def _extract_from_response(resp: Any) -> tuple[str, list[dict[str, Any]]]:
+    """Extract accumulated text + tool calls from a non-streaming response."""
     text = ""
     calls: list[dict[str, Any]] = []
     try:
         candidates = getattr(resp, "candidates", None) or []
         if not candidates:
-            # Sometimes the response has .text directly
             t = getattr(resp, "text", None)
             return t or "", calls
         parts = getattr(candidates[0].content, "parts", []) or []
         for part in parts:
             pt = getattr(part, "text", None)
-            if pt:
+            is_thought = bool(getattr(part, "thought", False))
+            if pt and not is_thought:
                 text += pt
             fc = getattr(part, "function_call", None)
             if fc is not None:
-                calls.append({
-                    "id": getattr(fc, "id", None) or uuid.uuid4().hex[:16],
-                    "name": getattr(fc, "name", ""),
-                    "args": _to_plain(getattr(fc, "args", {})) or {},
-                })
+                calls.append(_function_call_to_dict(fc))
     except Exception:
         pass
     return text, calls
+
+
+def _function_call_to_dict(fc: Any) -> dict[str, Any]:
+    """
+    Convert a FunctionCall part (protobuf or Mapping) to a plain dict,
+    preserving the `thought_signature` field that Gemini 3.x requires on
+    every round-trip.
+
+    Returns a dict with keys:
+        id, name, args, thought_signature (optional), thought (optional)
+    """
+    d: dict[str, Any] = {
+        "id": getattr(fc, "id", None) or uuid.uuid4().hex[:16],
+        "name": getattr(fc, "name", ""),
+        "args": _to_plain(getattr(fc, "args", {})) or {},
+    }
+    # Capture thought_signature if the model provided one. On Gemini 3.x
+    # this is mandatory for tool-calling to work round-trip.
+    ts = getattr(fc, "thought_signature", None)
+    if ts:
+        d["thought_signature"] = ts
+    # Some models also send a `thought` boolean or `thought_text` — preserve them.
+    if getattr(fc, "thought", None) is not None:
+        d["thought"] = bool(getattr(fc, "thought"))
+    return d
 
 
 def _to_plain(obj: Any) -> Any:
