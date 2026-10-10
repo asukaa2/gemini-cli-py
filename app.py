@@ -42,10 +42,35 @@ def main() -> int:
         default=None,
         help="Workspace root directory (default: current dir)",
     )
+    parser.add_argument(
+        "--api-key",
+        default=None,
+        help="Gemini API key (overrides GEMINI_API_KEY env var)",
+    )
+    parser.add_argument(
+        "--model",
+        default=None,
+        help="Gemini model name (overrides GEMINI_MODEL env var)",
+    )
+    parser.add_argument(
+        "--temperature",
+        type=float,
+        default=None,
+        help="Sampling temperature (overrides GEMINI_TEMPERATURE env var)",
+    )
     args = parser.parse_args()
 
     if args.workspace:
         os.environ["GEMINI_WORKSPACE"] = str(Path(args.workspace).resolve())
+
+    if args.api_key:
+        os.environ["GEMINI_API_KEY"] = args.api_key
+
+    if args.model:
+        os.environ["GEMINI_MODEL"] = args.model
+
+    if args.temperature is not None:
+        os.environ["GEMINI_TEMPERATURE"] = str(args.temperature)
 
     # Import after CLI args are parsed so env vars are visible
     from gemini_py.ui import launch
