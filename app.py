@@ -10,7 +10,7 @@ instead of an Ink terminal UI.
 """
 
 from __future__ import annotations
-
+from theme.dark import *
 import argparse
 import os
 import sys
@@ -25,6 +25,9 @@ def _load_dotenv() -> None:
         load_dotenv()
     except ImportError:
         pass
+
+
+theme = Dark()
 
 
 def main() -> int:
@@ -53,6 +56,7 @@ def main() -> int:
 
     _load_dotenv()
 
+
     if args.workspace:
         os.environ["GEMINI_WORKSPACE"] = str(Path(args.workspace).resolve())
 
@@ -67,6 +71,7 @@ def main() -> int:
         share=args.share,
         show_error=True,
         inbrowser=False,
+        theme=theme, 
     )
     return 0
 
