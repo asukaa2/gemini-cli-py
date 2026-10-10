@@ -17,16 +17,6 @@ import sys
 from pathlib import Path
 
 
-def _load_dotenv() -> None:
-    """Load .env from CWD if python-dotenv is available."""
-    try:
-        from dotenv import load_dotenv
-
-        load_dotenv()
-    except ImportError:
-        pass
-
-
 theme = Dark()
 
 
@@ -54,13 +44,10 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    _load_dotenv()
-
-
     if args.workspace:
         os.environ["GEMINI_WORKSPACE"] = str(Path(args.workspace).resolve())
 
-    # Import after .env is loaded so env vars are visible
+    # Import after CLI args are parsed so env vars are visible
     from gemini_py.ui import launch
 
     # Pass --share through to Gradio's native share feature. The resulting
