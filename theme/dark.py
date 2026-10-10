@@ -117,6 +117,7 @@ class Dark(Base):
             block_title_border_color="transparent",
             block_title_border_color_dark="transparent",
             block_title_border_width="0px",
+            block_title_border_width_dark="0px",
             block_title_padding="*spacing_sm *spacing_md",
             block_title_radius="*radius_md *radius_md 0 0",
             block_title_text_color=self.text_primary,
@@ -133,8 +134,8 @@ class Dark(Base):
 
             border_color_accent=self.secondary_500,
             border_color_accent_dark=self.secondary_500,
-            border_color_primary=self.border_subtle,
-            border_color_primary_dark=self.border_subtle,
+            border_color_primary="transparent",
+            border_color_primary_dark="transparent",
 
             button_border_width="1px",
             button_border_width_dark="1px",
@@ -278,10 +279,10 @@ class Dark(Base):
 
             panel_background_fill=self.bg_surface,
             panel_background_fill_dark=self.bg_surface,
-            panel_border_color=self.border_subtle,
-            panel_border_color_dark=self.border_subtle,
-            panel_border_width="1px",
-            panel_border_width_dark="1px",
+            panel_border_color="transparent",
+            panel_border_color_dark="transparent",
+            panel_border_width="0px",
+            panel_border_width_dark="0px",
 
             error_background_fill=self.bg_surface,
             error_background_fill_dark=self.bg_surface,
