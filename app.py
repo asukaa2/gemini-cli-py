@@ -17,7 +17,7 @@ import sys
 from pathlib import Path
 
 
-theme = Dark()
+theme = "gradio/base"
 
 
 def main() -> int:
