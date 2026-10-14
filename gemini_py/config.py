@@ -70,68 +70,89 @@ def workspace_root() -> Path:
 # every model the user's API key can actually see.
 #
 # Generation guide:
-#   • Gemini 3.x  → latest generation (3.5 / 3.7 / 3.8 Flash, 3.1 Pro)
-#   • Gemini 2.5.x → still supported, recommended for general use
-#   • Gemini 2.0.x → legacy, only use as a last-resort fallback
+#   • Gemini 4.x  → frontier model (Argon)
+#   • Gemini 3.8.x → latest stable Flash generation
+#   • Gemini 3.5.x → previous stable generation
+#   • Gemini 3.1.x → legacy stable
+#   • Nano Banana  → image generation and editing models
 #
-# NOTE: `gemini-2.5-flash-lite` and `gemini-2.0-flash-lite` are 404'ing
-# for new API keys as of Oct 2026 — Google redirects new users to
-# `gemini-3.5-flash-lite`. Don't list them as defaults.
+# NOTE: Gemini 2.0.x models were shut down on June 1, 2026. Do NOT list them.
+# NOTE: `gemini-2.5-flash-lite` is 404'ing for new API keys as of Oct 2026 —
+# Google redirects new users to `gemini-3.5-flash-lite`.
 
 DEFAULT_MODELS: list[dict[str, str]] = [
-    # ---- Gemini 3.x (latest) ---- #
+    # ---- Gemini 4.x (frontier) ---- #
+    {
+        "id": "gemini-4-argon",
+        "label": "Gemini 4 Argon (recommended)",
+        "description": "Frontier model for complex workflows, deep reasoning, and structural precision. Best for coding, finance, law, and cybersecurity.",
+    },
+    # ---- Gemini 3.8.x (latest stable Flash) ---- #
+    {
+        "id": "gemini-3.8-flash",
+        "label": "Gemini 3.8 Flash",
+        "description": "Latest and most intelligent Flash model. Built for long-horizon software engineering and autonomous agents.",
+    },
+    {
+        "id": "gemini-3.8-flash-lite",
+        "label": "Gemini 3.8 Flash-Lite",
+        "description": "Lightest/cheapest Gemini 3.8. For high-volume low-latency tasks.",
+    },
+    # ---- Gemini 3.7.x ---- #
+    {
+        "id": "gemini-3.7-flash",
+        "label": "Gemini 3.7 Flash",
+        "description": "Previous stable Flash generation. Solid default if 3.8 or 4.x misbehaves.",
+    },
+    # ---- Gemini 3.6.x ---- #
+    {
+        "id": "gemini-3.6-flash",
+        "label": "Gemini 3.6 Flash",
+        "description": "Stable, mature Flash model. Reliable fallback.",
+    },
+    # ---- Gemini 3.5.x (previous stable) ---- #
     {
         "id": "gemini-3.5-flash",
-        "label": "Gemini 3.5 Flash (recommended)",
-        "description": "Latest fast model. Best default for everyday tasks — cheap, fast, smart.",
+        "label": "Gemini 3.5 Flash",
+        "description": "Previous-gen fast model. Solid default if newer models misbehave.",
     },
     {
         "id": "gemini-3.5-flash-lite",
         "label": "Gemini 3.5 Flash-Lite",
         "description": "Lightest/cheapest Gemini 3.x. For high-volume low-latency tasks.",
     },
+    # ---- Gemini 3.1.x (legacy stable) ---- #
     {
-        "id": "gemini-3.1-pro",
-        "label": "Gemini 3.1 Pro (reasoning)",
-        "description": "Latest Pro. Best for complex reasoning, long context, code generation.",
+        "id": "gemini-3.1-pro-preview",
+        "label": "Gemini 3.1 Pro (preview)",
+        "description": "Previous-generation Pro. Strong reasoning, long context. May be unstable.",
     },
     {
         "id": "gemini-3.1-flash-lite",
         "label": "Gemini 3.1 Flash-Lite",
         "description": "Previous-gen Lite. Stable, very cheap, decent quality.",
     },
+    # ---- Nano Banana image models ---- #
     {
-        "id": "gemini-3-pro-preview",
-        "label": "Gemini 3 Pro (preview)",
-        "description": "Experimental Gemini 3 Pro. May be unstable.",
-    },
-    # ---- Gemini 2.5.x (still recommended) ---- #
-    {
-        "id": "gemini-2.5-flash",
-        "label": "Gemini 2.5 Flash (stable)",
-        "description": "Workhorse from Gemini 2.5 generation. Solid default if 3.x misbehaves.",
+        "id": "gemini-3.1-flash-image",
+        "label": "Nano Banana 2",
+        "description": "State-of-the-art native image generation and editing designed for fast, creative workflows.",
     },
     {
-        "id": "gemini-2.5-pro",
-        "label": "Gemini 2.5 Pro (stable)",
-        "description": "Gemini 2.5 Pro. Strong reasoning, 1M context window.",
+        "id": "gemini-3.1-flash-lite-image",
+        "label": "Nano Banana 2 Lite",
+        "description": "Optimized for ultra-low latency and cost-effective image generation and editing.",
     },
     {
-        "id": "gemini-2.5-flash-preview",
-        "label": "Gemini 2.5 Flash (preview)",
-        "description": "Preview branch of 2.5 Flash. Use only if you need a specific preview feature.",
-    },
-    # ---- Legacy 2.0.x (last resort) ---- #
-    {
-        "id": "gemini-2.0-flash",
-        "label": "Gemini 2.0 Flash (legacy)",
-        "description": "Previous-generation Flash. Use only as a fallback if 2.5/3.x fail.",
+        "id": "gemini-3-pro-image",
+        "label": "Nano Banana Pro",
+        "description": "High-fidelity image generation for professional-grade results.",
     },
 ]
 
-# Default model — Gemini 3.5 Flash is Google's recommended current default.
+# Default model — Gemini 4 Argon is the current frontier model (Oct 2026).
 # Override with the GEMINI_MODEL env var if needed.
-DEFAULT_MODEL_ID = os.environ.get("GEMINI_MODEL", "gemini-3.5-flash")
+DEFAULT_MODEL_ID = os.environ.get("GEMINI_MODEL", "gemini-4-argon")
 
 
 def model_id_to_label(model_id: str) -> str:
